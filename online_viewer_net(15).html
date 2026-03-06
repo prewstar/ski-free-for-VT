@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Retro Ski Pro</title>
+    <style>
+        body {
+            margin: 0; background: #333; color: white;
+            font-family: 'Courier New', monospace; overflow: hidden;
+            display: flex; flex-direction: column; align-items: center;
+        }
+        #game-container { position: relative; margin-top: 10px; touch-action: none; }
+        canvas { background: white; border: 4px solid #000; display: block; image-rendering: pixelated; }
+        
+        /* Mobile Controls */
+        #controls {
+            display: grid; grid-template-columns: repeat(3, 60px); grid-template-rows: repeat(2, 60px);
+            gap: 10px; margin-top: 15px; user-select: none;
+        }
+        .btn {
+            width: 60px; height: 60px; background: #555; border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: bold; font-size: 24px; border: 2px solid #fff;
+        }
+        .btn:active { background: #888; }
+        #up { grid-column: 2; }
+        #left { grid-column: 1; grid-row: 2; }
+        #down { grid-column: 2; grid-row: 2; }
+        #right { grid-column: 3; grid-row: 2; }
+
+        #ui { text-align: center; width: 100%; padding: 10px; }
+        #restartBtn { 
+            display: none; position: absolute; top: 50%; left: 50%; 
+            transform: translate(-50%, -50%); padding: 15px 30px; 
+            font-size: 20px; cursor: pointer; background: #ff4757; color: white; border: none;
+        }
+    </style>
+</head>
+<body>
+
+<div id="ui">
+    Distance: <span id="score">0</span>m | High: <span id="highScore">0</span>m
+</div>
+
+<div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+    <button id="restartBtn">Ouch! Restart</button>
+</div>
+
+<div id="controls">
+    <div class="btn" id="up">▲</div>
+    <div class="btn" id="left">◀</div>
+    <div class="btn" id="down">▼</div>
+    <div class="btn" id="right">▶</div>
+</div>
+
+<script>
+/** * REPLACEMENT INSTRUCTIONS:
+ * Replace the "data:image..." strings below with your local filenames 
+ * e.g., LEFT: "skier_left.png", 
+ */
+const SPRITE_SOURCES = {
+    PLAYER_DOWN: "Screenshot 2026-03-06 at 1.32.16 PM.png",
+    PLAYER_LEFT: "Screenshot 2026-03-06 at 1.25.18 PM.png",
+    PLAYER_RIGHT: "Screenshot 2026-03-06 at 1.26.01 PM.png",
+    PLAYER_OBLIQUE_L: "Screenshot 2026-03-06 at 1.25.37 PM.png",
+    PLAYER_OBLIQUE_R: "Screenshot 2026-03-06 at 1.25.51 PM.png",
+    PLAYER_CRASH: "Screenshot 2026-03-06 at 1.25.26 PM.png",
+    TREE_1: "Screenshot 2026-03-06 at 1.26.07 PM.png",
+    TREE_2: "Screenshot 2026-03-06 at 1.29.06 PM.png",
+    ROCK: "Screenshot 2026-03-06 at 1.26.40 PM.png",
+    DOG: "Screenshot 2026-03-06 at 1.29.55 PM.png"
+};
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const restartBtn = document.getElementById('restartBtn');
+const scoreEl = document.getElementById('score');
+
+canvas.width = 400;
+canvas.height = 500;
+
+// Game State
+let score = 0;
+let highScore = 0;
+let gameSpeed = 4;
+let isGameOver = false;
+let obstacles = [];
+let keys = {};
+
+// Load Images
+const images = {};
+Object.keys(SPRITE_SOURCES).forEach(key => {
+    images[key] = new Image();
+    images[key].src = SPRITE_SOURCES[key];
+});
+
+const player = {
+    x: 180, y: 100,
+    w: 32, h: 32,
+    vx: 0, vy: 0,
+    state: 'PLAYER_DOWN'
+};
+
+// Input Handlers
+window.addEventListener('keydown', e => keys[e.code] = true);
+window.addEventListener('keyup', e => keys[e.code] = false);
+
+// Mobile touch handlers
+const setupBtn = (id, code) => {
+    const btn = document.getElementById(id);
+    btn.addEventListener('touchstart', (e) => { e.preventDefault(); keys[code] = true; });
+    btn.addEventListener('touchend', (e) => { e.preventDefault(); keys[code] = false; });
+};
+setupBtn('up', 'ArrowUp'); setupBtn('down', 'ArrowDown');
+setupBtn('left', 'ArrowLeft'); setupBtn('right', 'ArrowRight');
+
+function spawnObstacle() {
+    if (isGameOver) return;
+    const rand = Math.random();
+    let type = 'ROCK';
+    let isMoving = false;
+
+    if (rand < 0.1) { type = 'DOG'; isMoving = true; }
+    else if (rand < 0.4) type = 'TREE_1';
+    else if (rand < 0.7) type = 'TREE_2';
+
+    obstacles.push({
+        x: Math.random() * (canvas.width - 30),
+        y: canvas.height,
+        w: 30, h: 30,
+        type: type,
+        isMoving: isMoving,
+        dir: Math.random() > 0.5 ? 1 : -1
+    });
+    setTimeout(spawnObstacle, Math.max(200, 800 - (score/5)));
+}
+
+function update() {
+    if (isGameOver) return;
+
+    // Movement & State Logic
+    player.vx = 0;
+    player.state = 'PLAYER_DOWN';
+
+    if (keys['ArrowLeft']) {
+        player.vx = -4;
+        player.state = keys['ArrowDown'] ? 'PLAYER_OBLIQUE_L' : 'PLAYER_LEFT';
+    } 
+    if (keys['ArrowRight']) {
+        player.vx = 4;
+        player.state = keys['ArrowDown'] ? 'PLAYER_OBLIQUE_R' : 'PLAYER_RIGHT';
+    }
+    
+    player.x += player.vx;
+    if (player.x < 0) player.x = 0;
+    if (player.x > canvas.width - player.w) player.x = canvas.width - player.w;
+
+    // Speed Control
+    let currentSpeed = keys['ArrowUp'] ? gameSpeed / 2 : (keys['ArrowDown'] ? gameSpeed * 1.5 : gameSpeed);
+
+    obstacles.forEach((obs, i) => {
+        obs.y -= currentSpeed;
+        
+        // Dog logic: move left to right
+        if (obs.isMoving) {
+            obs.x += obs.dir * 2;
+            if (obs.x <= 0 || obs.x >= canvas.width - obs.w) obs.dir *= -1;
+        }
+
+        // Collision (narrowed for fairness)
+        if (player.x < obs.x + obs.w - 5 && player.x + player.w > obs.x + 5 &&
+            player.y < obs.y + obs.h - 5 && player.y + player.height > obs.y + 5) {
+            endGame();
+        }
+
+        if (obs.y + obs.h < 0) obstacles.splice(i, 1);
+    });
+
+    score += Math.floor(currentSpeed / 2);
+    scoreEl.innerText = score;
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Draw Obstacles
+    obstacles.forEach(obs => {
+        ctx.drawImage(images[obs.type], obs.x, obs.y, obs.w, obs.h);
+    });
+
+    // Draw Player
+    ctx.drawImage(images[player.state], player.x, player.y, player.w, player.h);
+}
+
+function endGame() {
+    isGameOver = true;
+    player.state = 'PLAYER_CRASH';
+    if (score > highScore) {
+        highScore = score;
+        document.getElementById('highScore').innerText = highScore;
+    }
+    restartBtn.style.display = 'block';
+    draw(); // Draw final crash state
+}
+
+function gameLoop() {
+    update();
+    draw();
+    if (!isGameOver) requestAnimationFrame(gameLoop);
+}
+
+restartBtn.onclick = () => {
+    score = 0;
+    obstacles = [];
+    isGameOver = false;
+    player.x = 180;
+    restartBtn.style.display = 'none';
+    gameLoop();
+};
+
+// Start
+spawnObstacle();
+gameLoop();
+
+</script>
+</body>
+</html>
