@@ -61,16 +61,18 @@
  * e.g., LEFT: "skier_left.png", 
  */
 const SPRITE_SOURCES = {
-    PLAYER_DOWN: "Screenshot 2026-03-06 at 1.32.16 PM.png",
-    PLAYER_LEFT: "Screenshot 2026-03-06 at 1.25.18 PM.png",
-    PLAYER_RIGHT: "Screenshot 2026-03-06 at 1.26.01 PM.png",
-    PLAYER_OBLIQUE_L: "Screenshot 2026-03-06 at 1.25.37 PM.png",
-    PLAYER_OBLIQUE_R: "Screenshot 2026-03-06 at 1.25.51 PM.png",
-    PLAYER_CRASH: "Screenshot 2026-03-06 at 1.25.26 PM.png",
-    TREE_1: "Screenshot 2026-03-06 at 1.26.07 PM.png",
-    TREE_2: "Screenshot 2026-03-06 at 1.29.06 PM.png",
-    ROCK: "Screenshot 2026-03-06 at 1.26.40 PM.png",
-    DOG: "Screenshot 2026-03-06 at 1.29.55 PM.png"
+    PLAYER_DOWN: "player_down.png",
+    PLAYER_LEFT: "player_left.png",
+    PLAYER_RIGHT: "player_right.png",
+    PLAYER_OBLIQUE_L: "player_obl_left.png",
+    PLAYER_OBLIQUE_R: "player_obl_right.png",
+    PLAYER_CRASH: "player_crash.png",
+    TREE_1: "tree_1.png",
+    TREE_2: "tree_2.png",
+    TREE_3: "tree_3.png",
+    STUMP: "stump.png",
+    ROCK: "rock.png",
+    DOG: "dog.png"
 };
 
 const canvas = document.getElementById('gameCanvas');
@@ -123,8 +125,10 @@ function spawnObstacle() {
     let isMoving = false;
 
     if (rand < 0.1) { type = 'DOG'; isMoving = true; }
-    else if (rand < 0.4) type = 'TREE_1';
-    else if (rand < 0.7) type = 'TREE_2';
+    else if (rand < 0.3) type = 'TREE_1';
+    else if (rand < 0.5) type = 'TREE_2';
+    else if (rand < 0.7) type = 'TREE_3';
+    else if (rand < 0.9) type = 'STUMP';
 
     obstacles.push({
         x: Math.random() * (canvas.width - 30),
