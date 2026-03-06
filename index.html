@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Retro Ski Pro - Hard Mode</title>
+    <title>Retro Ski Pro - Multi-Engine Edition</title>
     <style>
         body {
             margin: 0; background: #333; color: white;
@@ -80,17 +80,23 @@ const scoreEl = document.getElementById('score');
 canvas.width = 400;
 canvas.height = 500;
 
+// Game Vars
 let score = 0;
 let highScore = 0;
-let baseSpeed = 5; // Slightly faster base
+let baseSpeed = 5;
 let speedMultiplier = 1;
 let isGameOver = false;
 let obstacles = [];
 let snowLumps = [];
-let spawnTimer;
-
 let steerState = 0; 
 
+// Multi-Engine Timers
+let lineCounter = 0;
+let lineTimer;
+let randomTimer;
+let snowTimer;
+
+// Load Images
 const images = {};
 let imagesLoaded = 0;
 const totalImages = Object.keys(SPRITE_SOURCES).length;
@@ -110,6 +116,7 @@ const player = {
     state: 'PLAYER_DOWN'
 };
 
+// --- STEERING LOGIC ---
 function handleInput(dir) {
     if (isGameOver) return;
     if (dir === 'LEFT' && steerState > -2) steerState--;
@@ -120,15 +127,14 @@ function handleInput(dir) {
 
 function updatePlayerState() {
     switch(steerState) {
-        case -2: player.state = 'PLAYER_LEFT'; player.vx = -4; player.vy = 0; break;
+        case -2: player.state = 'PLAYER_LEFT'; player.vx = -4.5; player.vy = 0; break;
         case -1: player.state = 'PLAYER_OBLIQUE_L'; player.vx = -2.5; player.vy = 0.7; break;
         case 0:  player.state = 'PLAYER_DOWN'; player.vx = 0; player.vy = 1; break;
         case 1:  player.state = 'PLAYER_OBLIQUE_R'; player.vx = 2.5; player.vy = 0.7; break;
-        case 2:  player.state = 'PLAYER_RIGHT'; player.vx = 4; player.vy = 0; break;
+        case 2:  player.state = 'PLAYER_RIGHT'; player.vx = 4.5; player.vy = 0; break;
     }
 }
 
-// Global listeners for Keyboard
 window.addEventListener('keydown', e => {
     if (e.code === 'ArrowLeft') handleInput('LEFT');
     if (e.code === 'ArrowRight') handleInput('RIGHT');
@@ -136,20 +142,26 @@ window.addEventListener('keydown', e => {
     if (e.code === 'ArrowUp') handleInput('UP');
 });
 
-// Touch/Click listeners
 const setupBtn = (id, dir) => {
     const el = document.getElementById(id);
-    el.addEventListener('touchstart', (e) => { e.preventDefault(); handleInput(dir); });
-    el.addEventListener('mousedown', (e) => { handleInput(dir); });
+    const trigger = (e) => { e.preventDefault(); handleInput(dir); };
+    el.addEventListener('touchstart', trigger);
+    el.addEventListener('mousedown', trigger);
 };
 setupBtn('left', 'LEFT'); setupBtn('right', 'RIGHT');
 setupBtn('down', 'DOWN'); setupBtn('up', 'UP');
 
-function createObstacle() {
+// --- SPAWNING ENGINES ---
+
+function createObstacle(alreadyHasDog = false) {
     const rand = Math.random();
     let type = 'ROCK';
     let isMoving = false;
-    if (rand < 0.1) { type = 'DOG'; isMoving = true; }
+
+    if (rand < 0.1 && !alreadyHasDog) { 
+        type = 'DOG'; 
+        isMoving = true; 
+    }
     else if (rand < 0.3) type = 'TREE_1';
     else if (rand < 0.5) type = 'TREE_2';
     else if (rand < 0.7) type = 'TREE_3';
@@ -165,26 +177,50 @@ function createObstacle() {
     };
 }
 
-function spawnObstacle() {
+function spawnObstacleLine() {
     if (isGameOver) return;
-    
-    // Spawn two obstacles per line
-    obstacles.push(createObstacle());
-    obstacles.push(createObstacle());
+    lineCounter++;
+    let obstacleCount = 0;
 
-    // Occasionally spawn snow lumps (30% chance per line)
-    if(Math.random() < 0.3) {
-        snowLumps.push({
-            x: Math.random() * (canvas.width - 35),
-            y: canvas.height,
-            w: 35, h: 35
-        });
+    if (score > 1500) {
+        obstacleCount = (Math.random() < 0.3) ? 3 : 2;
+    } else if (score > 750) {
+        obstacleCount = 2;
+    } else if (lineCounter % 2 === 0) {
+        obstacleCount = 2;
     }
-    
-    // Difficulty ramps up based on score
-    let spawnDelay = Math.max(300, 800 - (score / 5));
-    spawnTimer = setTimeout(spawnObstacle, spawnDelay);
+
+    if (obstacleCount > 0) {
+        let hasDog = false;
+        for (let i = 0; i < obstacleCount; i++) {
+            let obs = createObstacle(hasDog);
+            if (obs.type === 'DOG') hasDog = true;
+            obstacles.push(obs);
+        }
+    }
+    let lineDelay = Math.max(250, 800 - (score / 8));
+    lineTimer = setTimeout(spawnObstacleLine, lineDelay);
 }
+
+function spawnRandomObstacle() {
+    if (isGameOver) return;
+    obstacles.push(createObstacle(false));
+    let randomDelay = 500 + Math.random() * 1500;
+    randomTimer = setTimeout(spawnRandomObstacle, randomDelay);
+}
+
+function spawnSnow() {
+    if (isGameOver) return;
+    snowLumps.push({
+        x: Math.random() * (canvas.width - 35),
+        y: canvas.height,
+        w: 35, h: 35
+    });
+    let snowDelay = 800 + Math.random() * 2500;
+    snowTimer = setTimeout(spawnSnow, snowDelay);
+}
+
+// --- GAME LOOP ---
 
 function update() {
     if (isGameOver) return;
@@ -193,32 +229,27 @@ function update() {
     player.x = Math.max(0, Math.min(canvas.width - player.w, player.x));
 
     let currentSpeed = baseSpeed * player.vy * speedMultiplier;
+    if (speedMultiplier < 1) speedMultiplier += 0.015;
 
-    // Reset speed multiplier gradually if slowed by snow
-    if (speedMultiplier < 1) speedMultiplier += 0.02;
-
-    // Update Snow Lumps (Slowing logic)
+    // Snow Lumps
     for (let i = snowLumps.length - 1; i >= 0; i--) {
         let s = snowLumps[i];
         s.y -= currentSpeed;
-
         if (player.x < s.x + s.w && player.x + player.w > s.x &&
             player.y < s.y + s.h && player.y + player.h > s.y) {
-            speedMultiplier = 0.3; // Slow to 30% speed
+            speedMultiplier = 0.35;
         }
         if (s.y + s.h < 0) snowLumps.splice(i, 1);
     }
 
-    // Update Obstacles (Crash logic)
+    // Obstacles
     for (let i = obstacles.length - 1; i >= 0; i--) {
         let obs = obstacles[i];
         obs.y -= currentSpeed;
-        
         if (obs.isMoving) {
-            obs.x += obs.dir * 2;
+            obs.x += obs.dir * 2.2;
             if (obs.x <= 0 || obs.x >= canvas.width - obs.w) obs.dir *= -1;
         }
-
         if (player.x < obs.x + obs.w - 12 && player.x + player.w > obs.x + 12 &&
             player.y < obs.y + obs.h - 12 && player.y + player.h > obs.y + 12) {
             endGame();
@@ -236,15 +267,12 @@ function draw() {
     ctx.fillStyle = "white";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    // Draw Snow Lumps first (so they appear under obstacles)
     snowLumps.forEach(s => {
         if (images.SNOW.complete) ctx.drawImage(images.SNOW, s.x, s.y, s.w, s.h);
     });
-
     obstacles.forEach(obs => {
         if (images[obs.type].complete) ctx.drawImage(images[obs.type], obs.x, obs.y, obs.w, obs.h);
     });
-
     if (images[player.state].complete) {
         ctx.drawImage(images[player.state], player.x, player.y, player.w, player.h);
     }
@@ -252,7 +280,7 @@ function draw() {
 
 function endGame() {
     isGameOver = true;
-    clearTimeout(spawnTimer);
+    stopAllTimers();
     player.state = 'PLAYER_CRASH';
     if (Math.floor(score) > highScore) {
         highScore = Math.floor(score);
@@ -268,24 +296,35 @@ function gameLoop() {
     if (!isGameOver) requestAnimationFrame(gameLoop);
 }
 
+// --- INITIALIZATION & RESTART ---
+
 function initGame() {
     updatePlayerState();
-    spawnObstacle();
+    spawnObstacleLine(); 
+    spawnRandomObstacle();
+    spawnSnow();         
     gameLoop();
+}
+
+function stopAllTimers() {
+    clearTimeout(lineTimer);
+    clearTimeout(randomTimer);
+    clearTimeout(snowTimer);
 }
 
 restartBtn.onclick = () => {
     score = 0;
     obstacles = [];
     snowLumps = [];
+    lineCounter = 0;
     isGameOver = false;
     steerState = 0;
     speedMultiplier = 1;
     updatePlayerState();
     restartBtn.style.display = 'none';
-    clearTimeout(spawnTimer);
-    spawnObstacle(); 
-    gameLoop();
+    
+    stopAllTimers();
+    initGame();
 };
 </script>
 </body>
