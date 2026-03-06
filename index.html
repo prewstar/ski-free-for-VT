@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Retro Ski Pro</title>
+    <title>Retro Ski Pro - Hard Mode</title>
     <style>
         body {
             margin: 0; background: #333; color: white;
@@ -68,7 +68,8 @@ const SPRITE_SOURCES = {
     TREE_3: "tree_3.png",
     STUMP: "stump.png",
     ROCK: "rock.png",
-    DOG: "dog.png"
+    DOG: "dog.png",
+    SNOW: "snow.png"
 };
 
 const canvas = document.getElementById('gameCanvas');
@@ -81,12 +82,13 @@ canvas.height = 500;
 
 let score = 0;
 let highScore = 0;
-let baseSpeed = 4;
+let baseSpeed = 5; // Slightly faster base
+let speedMultiplier = 1;
 let isGameOver = false;
 let obstacles = [];
+let snowLumps = [];
 let spawnTimer;
 
-// Steering States: -2 (Left), -1 (Oblique L), 0 (Straight), 1 (Oblique R), 2 (Right)
 let steerState = 0; 
 
 const images = {};
@@ -108,30 +110,25 @@ const player = {
     state: 'PLAYER_DOWN'
 };
 
-// --- INPUT LOGIC (STEP-BASED STEERING) ---
 function handleInput(dir) {
     if (isGameOver) return;
-
-    if (dir === 'LEFT') {
-        if (steerState > -2) steerState--;
-    } else if (dir === 'RIGHT') {
-        if (steerState < 2) steerState++;
-    } else if (dir === 'DOWN' || dir === 'UP') {
-        steerState = 0; // Reset to straight down
-    }
+    if (dir === 'LEFT' && steerState > -2) steerState--;
+    else if (dir === 'RIGHT' && steerState < 2) steerState++;
+    else if (dir === 'DOWN' || dir === 'UP') steerState = 0;
     updatePlayerState();
 }
 
 function updatePlayerState() {
     switch(steerState) {
         case -2: player.state = 'PLAYER_LEFT'; player.vx = -4; player.vy = 0; break;
-        case -1: player.state = 'PLAYER_OBLIQUE_L'; player.vx = -2; player.vy = 0.7; break;
+        case -1: player.state = 'PLAYER_OBLIQUE_L'; player.vx = -2.5; player.vy = 0.7; break;
         case 0:  player.state = 'PLAYER_DOWN'; player.vx = 0; player.vy = 1; break;
-        case 1:  player.state = 'PLAYER_OBLIQUE_R'; player.vx = 2; player.vy = 0.7; break;
+        case 1:  player.state = 'PLAYER_OBLIQUE_R'; player.vx = 2.5; player.vy = 0.7; break;
         case 2:  player.state = 'PLAYER_RIGHT'; player.vx = 4; player.vy = 0; break;
     }
 }
 
+// Global listeners for Keyboard
 window.addEventListener('keydown', e => {
     if (e.code === 'ArrowLeft') handleInput('LEFT');
     if (e.code === 'ArrowRight') handleInput('RIGHT');
@@ -139,53 +136,80 @@ window.addEventListener('keydown', e => {
     if (e.code === 'ArrowUp') handleInput('UP');
 });
 
+// Touch/Click listeners
 const setupBtn = (id, dir) => {
-    document.getElementById(id).addEventListener('touchstart', (e) => { e.preventDefault(); handleInput(dir); });
-    document.getElementById(id).addEventListener('mousedown', (e) => { handleInput(dir); });
+    const el = document.getElementById(id);
+    el.addEventListener('touchstart', (e) => { e.preventDefault(); handleInput(dir); });
+    el.addEventListener('mousedown', (e) => { handleInput(dir); });
 };
 setupBtn('left', 'LEFT'); setupBtn('right', 'RIGHT');
 setupBtn('down', 'DOWN'); setupBtn('up', 'UP');
 
-function spawnObstacle() {
-    if (isGameOver) return;
-    
+function createObstacle() {
     const rand = Math.random();
     let type = 'ROCK';
     let isMoving = false;
-
     if (rand < 0.1) { type = 'DOG'; isMoving = true; }
     else if (rand < 0.3) type = 'TREE_1';
     else if (rand < 0.5) type = 'TREE_2';
     else if (rand < 0.7) type = 'TREE_3';
     else if (rand < 0.85) type = 'STUMP';
 
-    obstacles.push({
+    return {
         x: Math.random() * (canvas.width - 40),
         y: canvas.height,
         w: 40, h: 40,
         type: type,
         isMoving: isMoving,
         dir: Math.random() > 0.5 ? 1 : -1
-    });
+    };
+}
+
+function spawnObstacle() {
+    if (isGameOver) return;
     
-    // DIFFICULTY: Decrease spawn delay every 100m (score / 100)
-    let difficultyBonus = Math.floor(score / 100) * 50; 
-    let spawnDelay = Math.max(150, 1000 - difficultyBonus);
+    // Spawn two obstacles per line
+    obstacles.push(createObstacle());
+    obstacles.push(createObstacle());
+
+    // Occasionally spawn snow lumps (30% chance per line)
+    if(Math.random() < 0.3) {
+        snowLumps.push({
+            x: Math.random() * (canvas.width - 35),
+            y: canvas.height,
+            w: 35, h: 35
+        });
+    }
     
+    // Difficulty ramps up based on score
+    let spawnDelay = Math.max(300, 800 - (score / 5));
     spawnTimer = setTimeout(spawnObstacle, spawnDelay);
 }
 
 function update() {
     if (isGameOver) return;
 
-    // Apply horizontal movement
     player.x += player.vx;
     player.x = Math.max(0, Math.min(canvas.width - player.w, player.x));
 
-    // Calculate vertical movement speed
-    // If sideways, mountain stops moving. If oblique, moves slower.
-    let currentSpeed = baseSpeed * player.vy;
+    let currentSpeed = baseSpeed * player.vy * speedMultiplier;
 
+    // Reset speed multiplier gradually if slowed by snow
+    if (speedMultiplier < 1) speedMultiplier += 0.02;
+
+    // Update Snow Lumps (Slowing logic)
+    for (let i = snowLumps.length - 1; i >= 0; i--) {
+        let s = snowLumps[i];
+        s.y -= currentSpeed;
+
+        if (player.x < s.x + s.w && player.x + player.w > s.x &&
+            player.y < s.y + s.h && player.y + player.h > s.y) {
+            speedMultiplier = 0.3; // Slow to 30% speed
+        }
+        if (s.y + s.h < 0) snowLumps.splice(i, 1);
+    }
+
+    // Update Obstacles (Crash logic)
     for (let i = obstacles.length - 1; i >= 0; i--) {
         let obs = obstacles[i];
         obs.y -= currentSpeed;
@@ -195,7 +219,6 @@ function update() {
             if (obs.x <= 0 || obs.x >= canvas.width - obs.w) obs.dir *= -1;
         }
 
-        // Collision
         if (player.x < obs.x + obs.w - 12 && player.x + player.w > obs.x + 12 &&
             player.y < obs.y + obs.h - 12 && player.y + player.h > obs.y + 12) {
             endGame();
@@ -203,7 +226,6 @@ function update() {
         if (obs.y + obs.h < 0) obstacles.splice(i, 1);
     }
 
-    // AUTOMATIC DISTANCE: Score increases by current speed
     if (currentSpeed > 0) {
         score += currentSpeed / 10;
         scoreEl.innerText = Math.floor(score);
@@ -214,6 +236,11 @@ function draw() {
     ctx.fillStyle = "white";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
+    // Draw Snow Lumps first (so they appear under obstacles)
+    snowLumps.forEach(s => {
+        if (images.SNOW.complete) ctx.drawImage(images.SNOW, s.x, s.y, s.w, s.h);
+    });
+
     obstacles.forEach(obs => {
         if (images[obs.type].complete) ctx.drawImage(images[obs.type], obs.x, obs.y, obs.w, obs.h);
     });
@@ -250,12 +277,12 @@ function initGame() {
 restartBtn.onclick = () => {
     score = 0;
     obstacles = [];
+    snowLumps = [];
     isGameOver = false;
     steerState = 0;
+    speedMultiplier = 1;
     updatePlayerState();
     restartBtn.style.display = 'none';
-    
-    // Clear any old timers before starting new ones
     clearTimeout(spawnTimer);
     spawnObstacle(); 
     gameLoop();
