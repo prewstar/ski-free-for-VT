@@ -29,6 +29,21 @@
         #right { grid-column: 3; grid-row: 2; }
 
         #ui { text-align: center; width: 100%; padding: 10px; font-weight: bold; }
+        
+        /* Modals & Popups */
+        .overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85); display: flex; flex-direction: column;
+            align-items: center; justify-content: center; text-align: center;
+            z-index: 20; padding: 20px; box-sizing: border-box;
+        }
+        .overlay h2 { color: #ff4757; margin-top: 0; }
+        .overlay p { font-size: 14px; line-height: 1.5; margin: 10px 0; }
+        .start-btn {
+            padding: 15px 40px; font-size: 20px; background: #2ed573;
+            color: white; border: none; cursor: pointer; font-family: inherit;
+            margin-top: 15px; border-bottom: 4px solid #1a9e52;
+        }
         #restartBtn { 
             display: none; position: absolute; top: 50%; left: 50%; 
             transform: translate(-50%, -50%); padding: 15px 30px; 
@@ -44,6 +59,14 @@
 </div>
 
 <div id="game-container">
+    <div id="startPopup" class="overlay">
+        <h2>READY TO SKI?</h2>
+        <p><strong>LEFT/RIGHT</strong>: Move Through States<br>(Straight → Oblique → Stop/Sideways)</p>
+        <p><strong>UP/DOWN</strong>: Face Straight Down</p>
+        <p><strong>SNOW LUMPS</strong>: Slow you down.<br><strong>EVERYTHING ELSE</strong>: You crash!</p>
+        <button class="start-btn" onclick="startGame()">START SKIING</button>
+    </div>
+
     <canvas id="gameCanvas"></canvas>
     <button id="restartBtn">RESTART</button>
 </div>
@@ -75,12 +98,12 @@ const SPRITE_SOURCES = {
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const restartBtn = document.getElementById('restartBtn');
+const startPopup = document.getElementById('startPopup');
 const scoreEl = document.getElementById('score');
 
 canvas.width = 400;
 canvas.height = 500;
 
-// Game Vars
 let score = 0;
 let highScore = 0;
 let baseSpeed = 5;
@@ -89,22 +112,18 @@ let isGameOver = false;
 let obstacles = [];
 let snowLumps = [];
 let steerState = 0; 
-
-// Multi-Engine Timers
 let lineCounter = 0;
-let lineTimer;
-let randomTimer;
-let snowTimer;
 
-// Load Images
+let lineTimer, randomTimer, snowTimer;
+
 const images = {};
 let imagesLoaded = 0;
 const totalImages = Object.keys(SPRITE_SOURCES).length;
 
 Object.keys(SPRITE_SOURCES).forEach(key => {
     const img = new Image();
-    img.onload = () => { if (++imagesLoaded === totalImages) initGame(); };
-    img.onerror = () => { imagesLoaded++; if (imagesLoaded === totalImages) initGame(); };
+    img.onload = () => { if (++imagesLoaded === totalImages) { /* Ready, but wait for click */ } };
+    img.onerror = () => { imagesLoaded++; };
     img.src = SPRITE_SOURCES[key];
     images[key] = img;
 });
@@ -116,7 +135,6 @@ const player = {
     state: 'PLAYER_DOWN'
 };
 
-// --- STEERING LOGIC ---
 function handleInput(dir) {
     if (isGameOver) return;
     if (dir === 'LEFT' && steerState > -2) steerState--;
@@ -151,17 +169,11 @@ const setupBtn = (id, dir) => {
 setupBtn('left', 'LEFT'); setupBtn('right', 'RIGHT');
 setupBtn('down', 'DOWN'); setupBtn('up', 'UP');
 
-// --- SPAWNING ENGINES ---
-
 function createObstacle(alreadyHasDog = false) {
     const rand = Math.random();
     let type = 'ROCK';
     let isMoving = false;
-
-    if (rand < 0.1 && !alreadyHasDog) { 
-        type = 'DOG'; 
-        isMoving = true; 
-    }
+    if (rand < 0.1 && !alreadyHasDog) { type = 'DOG'; isMoving = true; }
     else if (rand < 0.3) type = 'TREE_1';
     else if (rand < 0.5) type = 'TREE_2';
     else if (rand < 0.7) type = 'TREE_3';
@@ -169,11 +181,8 @@ function createObstacle(alreadyHasDog = false) {
 
     return {
         x: Math.random() * (canvas.width - 40),
-        y: canvas.height,
-        w: 40, h: 40,
-        type: type,
-        isMoving: isMoving,
-        dir: Math.random() > 0.5 ? 1 : -1
+        y: canvas.height, w: 40, h: 40, type: type,
+        isMoving: isMoving, dir: Math.random() > 0.5 ? 1 : -1
     };
 }
 
@@ -181,14 +190,9 @@ function spawnObstacleLine() {
     if (isGameOver) return;
     lineCounter++;
     let obstacleCount = 0;
-
-    if (score > 1500) {
-        obstacleCount = (Math.random() < 0.3) ? 3 : 2;
-    } else if (score > 750) {
-        obstacleCount = 2;
-    } else if (lineCounter % 2 === 0) {
-        obstacleCount = 2;
-    }
+    if (score > 1500) obstacleCount = (Math.random() < 0.3) ? 3 : 2;
+    else if (score > 750) obstacleCount = 2;
+    else if (lineCounter % 2 === 0) obstacleCount = 2;
 
     if (obstacleCount > 0) {
         let hasDog = false;
@@ -198,94 +202,54 @@ function spawnObstacleLine() {
             obstacles.push(obs);
         }
     }
-    let lineDelay = Math.max(250, 800 - (score / 8));
-    lineTimer = setTimeout(spawnObstacleLine, lineDelay);
+    lineTimer = setTimeout(spawnObstacleLine, Math.max(250, 800 - (score / 8)));
 }
 
 function spawnRandomObstacle() {
     if (isGameOver) return;
     obstacles.push(createObstacle(false));
-    let randomDelay = 500 + Math.random() * 1500;
-    randomTimer = setTimeout(spawnRandomObstacle, randomDelay);
+    randomTimer = setTimeout(spawnRandomObstacle, 500 + Math.random() * 1500);
 }
 
 function spawnSnow() {
     if (isGameOver) return;
-    snowLumps.push({
-        x: Math.random() * (canvas.width - 35),
-        y: canvas.height,
-        w: 35, h: 35
-    });
-    let snowDelay = 800 + Math.random() * 2500;
-    snowTimer = setTimeout(spawnSnow, snowDelay);
+    snowLumps.push({ x: Math.random() * (canvas.width - 35), y: canvas.height, w: 35, h: 35 });
+    snowTimer = setTimeout(spawnSnow, 800 + Math.random() * 2500);
 }
-
-// --- GAME LOOP ---
 
 function update() {
     if (isGameOver) return;
-
     player.x += player.vx;
     player.x = Math.max(0, Math.min(canvas.width - player.w, player.x));
-
     let currentSpeed = baseSpeed * player.vy * speedMultiplier;
     if (speedMultiplier < 1) speedMultiplier += 0.015;
 
-    // Snow Lumps
     for (let i = snowLumps.length - 1; i >= 0; i--) {
-        let s = snowLumps[i];
-        s.y -= currentSpeed;
-        if (player.x < s.x + s.w && player.x + player.w > s.x &&
-            player.y < s.y + s.h && player.y + player.h > s.y) {
-            speedMultiplier = 0.35;
-        }
+        let s = snowLumps[i]; s.y -= currentSpeed;
+        if (player.x < s.x + s.w && player.x + player.w > s.x && player.y < s.y + s.h && player.y + player.h > s.y) speedMultiplier = 0.35;
         if (s.y + s.h < 0) snowLumps.splice(i, 1);
     }
-
-    // Obstacles
     for (let i = obstacles.length - 1; i >= 0; i--) {
-        let obs = obstacles[i];
-        obs.y -= currentSpeed;
-        if (obs.isMoving) {
-            obs.x += obs.dir * 2.2;
-            if (obs.x <= 0 || obs.x >= canvas.width - obs.w) obs.dir *= -1;
-        }
-        if (player.x < obs.x + obs.w - 12 && player.x + player.w > obs.x + 12 &&
-            player.y < obs.y + obs.h - 12 && player.y + player.h > obs.y + 12) {
-            endGame();
-        }
+        let obs = obstacles[i]; obs.y -= currentSpeed;
+        if (obs.isMoving) { obs.x += obs.dir * 2.2; if (obs.x <= 0 || obs.x >= canvas.width - obs.w) obs.dir *= -1; }
+        if (player.x < obs.x + obs.w - 12 && player.x + player.w > obs.x + 12 && player.y < obs.y + obs.h - 12 && player.y + player.h > obs.y + 12) endGame();
         if (obs.y + obs.h < 0) obstacles.splice(i, 1);
     }
-
-    if (currentSpeed > 0) {
-        score += currentSpeed / 10;
-        scoreEl.innerText = Math.floor(score);
-    }
+    if (currentSpeed > 0) { score += currentSpeed / 10; scoreEl.innerText = Math.floor(score); }
 }
 
 function draw() {
-    ctx.fillStyle = "white";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
-    snowLumps.forEach(s => {
-        if (images.SNOW.complete) ctx.drawImage(images.SNOW, s.x, s.y, s.w, s.h);
-    });
-    obstacles.forEach(obs => {
-        if (images[obs.type].complete) ctx.drawImage(images[obs.type], obs.x, obs.y, obs.w, obs.h);
-    });
-    if (images[player.state].complete) {
-        ctx.drawImage(images[player.state], player.x, player.y, player.w, player.h);
-    }
+    ctx.fillStyle = "white"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    snowLumps.forEach(s => { if (images.SNOW.complete) ctx.drawImage(images.SNOW, s.x, s.y, s.w, s.h); });
+    obstacles.forEach(obs => { if (images[obs.type].complete) ctx.drawImage(images[obs.type], obs.x, obs.y, obs.w, obs.h); });
+    if (images[player.state].complete) ctx.drawImage(images[player.state], player.x, player.y, player.w, player.h);
 }
 
 function endGame() {
     isGameOver = true;
     stopAllTimers();
     player.state = 'PLAYER_CRASH';
-    if (Math.floor(score) > highScore) {
-        highScore = Math.floor(score);
-        document.getElementById('highScore').innerText = highScore;
-    }
+    if (Math.floor(score) > highScore) { highScore = Math.floor(score); document.getElementById('highScore').innerText = highScore; }
     restartBtn.style.display = 'block';
     draw();
 }
@@ -296,33 +260,25 @@ function gameLoop() {
     if (!isGameOver) requestAnimationFrame(gameLoop);
 }
 
-// --- INITIALIZATION & RESTART ---
+function startGame() {
+    startPopup.style.display = 'none';
+    initGame();
+}
 
 function initGame() {
+    isGameOver = false;
     updatePlayerState();
-    spawnObstacleLine(); 
-    spawnRandomObstacle();
-    spawnSnow();         
+    spawnObstacleLine(); spawnRandomObstacle(); spawnSnow();         
     gameLoop();
 }
 
 function stopAllTimers() {
-    clearTimeout(lineTimer);
-    clearTimeout(randomTimer);
-    clearTimeout(snowTimer);
+    clearTimeout(lineTimer); clearTimeout(randomTimer); clearTimeout(snowTimer);
 }
 
 restartBtn.onclick = () => {
-    score = 0;
-    obstacles = [];
-    snowLumps = [];
-    lineCounter = 0;
-    isGameOver = false;
-    steerState = 0;
-    speedMultiplier = 1;
-    updatePlayerState();
-    restartBtn.style.display = 'none';
-    
+    score = 0; obstacles = []; snowLumps = []; lineCounter = 0; isGameOver = false;
+    steerState = 0; speedMultiplier = 1; restartBtn.style.display = 'none';
     stopAllTimers();
     initGame();
 };
