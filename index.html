@@ -11,28 +11,29 @@
             display: flex; flex-direction: column; align-items: center;
         }
         #game-container { position: relative; margin-top: 10px; touch-action: none; }
-        canvas { background: white; border: 4px solid #000; display: block; image-rendering: pixelated; }
+        canvas { background: #fff; border: 4px solid #000; display: block; image-rendering: pixelated; }
         
         #controls {
-            display: grid; grid-template-columns: repeat(3, 60px); grid-template-rows: repeat(2, 60px);
+            display: grid; grid-template-columns: repeat(3, 65px); grid-template-rows: repeat(2, 65px);
             gap: 10px; margin-top: 15px; user-select: none;
         }
         .btn {
-            width: 60px; height: 60px; background: #555; border-radius: 10px;
+            width: 65px; height: 65px; background: #444; border-radius: 12px;
             display: flex; align-items: center; justify-content: center;
-            font-weight: bold; font-size: 24px; border: 2px solid #fff;
+            font-size: 24px; border: 2px solid #fff;
         }
-        .btn:active { background: #888; }
+        .btn:active { background: #777; }
         #up { grid-column: 2; }
         #left { grid-column: 1; grid-row: 2; }
         #down { grid-column: 2; grid-row: 2; }
         #right { grid-column: 3; grid-row: 2; }
 
-        #ui { text-align: center; width: 100%; padding: 10px; }
+        #ui { text-align: center; width: 100%; padding: 10px; font-weight: bold; }
         #restartBtn { 
             display: none; position: absolute; top: 50%; left: 50%; 
             transform: translate(-50%, -50%); padding: 15px 30px; 
-            font-size: 20px; cursor: pointer; background: #ff4757; color: white; border: none; z-index: 10;
+            font-size: 20px; cursor: pointer; background: #ff4757; color: white; 
+            border: 3px solid white; z-index: 10; font-family: inherit;
         }
     </style>
 </head>
@@ -44,7 +45,7 @@
 
 <div id="game-container">
     <canvas id="gameCanvas"></canvas>
-    <button id="restartBtn">Ouch! Restart</button>
+    <button id="restartBtn">RESTART</button>
 </div>
 
 <div id="controls">
@@ -84,28 +85,37 @@ let gameSpeed = 4;
 let isGameOver = false;
 let obstacles = [];
 let keys = {};
+let gameStarted = false;
 
-// --- ASSET LOADER ---
+// --- ROBUST LOADER ---
 const images = {};
 let imagesLoaded = 0;
 const totalImages = Object.keys(SPRITE_SOURCES).length;
 
 Object.keys(SPRITE_SOURCES).forEach(key => {
     const img = new Image();
-    img.src = SPRITE_SOURCES[key];
     img.onload = () => {
         imagesLoaded++;
-        if (imagesLoaded === totalImages) {
-            initGame();
-        }
+        if (imagesLoaded === totalImages) startOnce();
     };
     img.onerror = () => {
-        console.error("Critical Error: Could not find " + SPRITE_SOURCES[key]);
-        ctx.fillStyle = "red";
-        ctx.fillText("Missing: " + SPRITE_SOURCES[key], 10, 20 + (imagesLoaded * 15));
+        console.warn("Failed to load: " + SPRITE_SOURCES[key]);
+        imagesLoaded++; 
+        if (imagesLoaded === totalImages) startOnce();
     };
+    img.src = SPRITE_SOURCES[key];
     images[key] = img;
 });
+
+// Force start after 2 seconds even if images are slow
+setTimeout(() => { if(!gameStarted) startOnce(); }, 2000);
+
+function startOnce() {
+    if (gameStarted) return;
+    gameStarted = true;
+    spawnObstacle();
+    gameLoop();
+}
 
 const player = {
     x: 180, y: 100,
@@ -115,15 +125,18 @@ const player = {
 };
 
 // --- INPUTS ---
-window.addEventListener('keydown', e => keys[e.code] = true);
-window.addEventListener('keyup', e => keys[e.code] = false);
+window.addEventListener('keydown', e => { keys[e.code] = true; });
+window.addEventListener('keyup', e => { keys[e.code] = false; });
 
 const setupBtn = (id, code) => {
     const btn = document.getElementById(id);
-    btn.addEventListener('touchstart', (e) => { e.preventDefault(); keys[code] = true; });
-    btn.addEventListener('touchend', (e) => { e.preventDefault(); keys[code] = false; });
-    btn.addEventListener('mousedown', (e) => { keys[code] = true; });
-    btn.addEventListener('mouseup', (e) => { keys[code] = false; });
+    const press = (e) => { e.preventDefault(); keys[code] = true; };
+    const release = (e) => { e.preventDefault(); keys[code] = false; };
+    btn.addEventListener('touchstart', press);
+    btn.addEventListener('touchend', release);
+    btn.addEventListener('mousedown', press);
+    btn.addEventListener('mouseup', release);
+    btn.addEventListener('mouseleave', release);
 };
 setupBtn('up', 'ArrowUp'); setupBtn('down', 'ArrowDown');
 setupBtn('left', 'ArrowLeft'); setupBtn('right', 'ArrowRight');
@@ -134,13 +147,11 @@ function spawnObstacle() {
     let type = 'ROCK';
     let isMoving = false;
 
-    // Weighting the obstacles
     if (rand < 0.1) { type = 'DOG'; isMoving = true; }
     else if (rand < 0.3) type = 'TREE_1';
     else if (rand < 0.5) type = 'TREE_2';
     else if (rand < 0.7) type = 'TREE_3';
     else if (rand < 0.85) type = 'STUMP';
-    else type = 'ROCK';
 
     obstacles.push({
         x: Math.random() * (canvas.width - 40),
@@ -151,7 +162,7 @@ function spawnObstacle() {
         dir: Math.random() > 0.5 ? 1 : -1
     });
     
-    setTimeout(spawnObstacle, Math.max(300, 1000 - (score/2)));
+    setTimeout(spawnObstacle, Math.max(300, 1000 - (score/3)));
 }
 
 function update() {
@@ -161,11 +172,11 @@ function update() {
     player.state = 'PLAYER_DOWN';
 
     if (keys['ArrowLeft']) {
-        player.vx = -4;
+        player.vx = -5;
         player.state = keys['ArrowDown'] ? 'PLAYER_OBLIQUE_L' : 'PLAYER_LEFT';
     } 
     if (keys['ArrowRight']) {
-        player.vx = 4;
+        player.vx = 5;
         player.state = keys['ArrowDown'] ? 'PLAYER_OBLIQUE_R' : 'PLAYER_RIGHT';
     }
     
@@ -183,28 +194,45 @@ function update() {
             if (obs.x <= 0 || obs.x >= canvas.width - obs.w) obs.dir *= -1;
         }
 
-        // Collision Check (Hitbox tightened slightly for pixel art)
-        if (player.x < obs.x + obs.w - 8 && player.x + player.w > obs.x + 8 &&
-            player.y < obs.y + obs.h - 8 && player.y + player.h > obs.y + 8) {
+        if (player.x < obs.x + obs.w - 12 && player.x + player.w > obs.x + 12 &&
+            player.y < obs.y + obs.h - 12 && player.y + player.h > obs.y + 12) {
             endGame();
         }
 
         if (obs.y + obs.h < 0) obstacles.splice(i, 1);
     }
 
-    score += Math.floor(currentSpeed / 4);
+    score += Math.floor(currentSpeed / 5);
     scoreEl.innerText = score;
+    gameSpeed = 4 + (score / 1500); 
 }
 
 function draw() {
+    // Clear and fill white
     ctx.fillStyle = "white";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
     obstacles.forEach(obs => {
-        ctx.drawImage(images[obs.type], obs.x, obs.y, obs.w, obs.h);
+        const img = images[obs.type];
+        if (img.complete && img.naturalWidth !== 0) {
+            ctx.drawImage(img, obs.x, obs.y, obs.w, obs.h);
+        } else {
+            // Draw a box if image is missing
+            ctx.fillStyle = "#ddd";
+            ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+            ctx.fillStyle = "black";
+            ctx.font = "8px Arial";
+            ctx.fillText(obs.type, obs.x, obs.y + 20);
+        }
     });
 
-    ctx.drawImage(images[player.state], player.x, player.y, player.w, player.h);
+    const pImg = images[player.state];
+    if (pImg.complete && pImg.naturalWidth !== 0) {
+        ctx.drawImage(pImg, player.x, player.y, player.w, player.h);
+    } else {
+        ctx.fillStyle = "blue";
+        ctx.fillRect(player.x, player.y, player.w, player.h);
+    }
 }
 
 function endGame() {
@@ -215,17 +243,13 @@ function endGame() {
         document.getElementById('highScore').innerText = highScore;
     }
     restartBtn.style.display = 'block';
+    draw(); // Draw final crash
 }
 
 function gameLoop() {
     update();
     draw();
     if (!isGameOver) requestAnimationFrame(gameLoop);
-}
-
-function initGame() {
-    spawnObstacle();
-    gameLoop();
 }
 
 restartBtn.onclick = () => {
@@ -237,12 +261,6 @@ restartBtn.onclick = () => {
     restartBtn.style.display = 'none';
     gameLoop();
 };
-
-// Initial loading state
-ctx.fillStyle = "black";
-ctx.font = "16px Courier New";
-ctx.fillText("Gathering gear...", 130, 250);
-
 </script>
 </body>
 </html>
