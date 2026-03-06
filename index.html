@@ -20,7 +20,7 @@
         .btn {
             width: 65px; height: 65px; background: #444; border-radius: 12px;
             display: flex; align-items: center; justify-content: center;
-            font-size: 24px; border: 2px solid #fff;
+            font-size: 24px; border: 2px solid #fff; cursor: pointer;
         }
         .btn:active { background: #777; }
         #up { grid-column: 2; }
@@ -81,68 +81,74 @@ canvas.height = 500;
 
 let score = 0;
 let highScore = 0;
-let gameSpeed = 4;
+let baseSpeed = 4;
 let isGameOver = false;
 let obstacles = [];
-let keys = {};
-let gameStarted = false;
+let spawnTimer;
 
-// --- ROBUST LOADER ---
+// Steering States: -2 (Left), -1 (Oblique L), 0 (Straight), 1 (Oblique R), 2 (Right)
+let steerState = 0; 
+
 const images = {};
 let imagesLoaded = 0;
 const totalImages = Object.keys(SPRITE_SOURCES).length;
 
 Object.keys(SPRITE_SOURCES).forEach(key => {
     const img = new Image();
-    img.onload = () => {
-        imagesLoaded++;
-        if (imagesLoaded === totalImages) startOnce();
-    };
-    img.onerror = () => {
-        console.warn("Failed to load: " + SPRITE_SOURCES[key]);
-        imagesLoaded++; 
-        if (imagesLoaded === totalImages) startOnce();
-    };
+    img.onload = () => { if (++imagesLoaded === totalImages) initGame(); };
+    img.onerror = () => { imagesLoaded++; if (imagesLoaded === totalImages) initGame(); };
     img.src = SPRITE_SOURCES[key];
     images[key] = img;
 });
 
-// Force start after 2 seconds even if images are slow
-setTimeout(() => { if(!gameStarted) startOnce(); }, 2000);
-
-function startOnce() {
-    if (gameStarted) return;
-    gameStarted = true;
-    spawnObstacle();
-    gameLoop();
-}
-
 const player = {
     x: 180, y: 100,
     w: 40, h: 40,
-    vx: 0,
+    vx: 0, vy: 0,
     state: 'PLAYER_DOWN'
 };
 
-// --- INPUTS ---
-window.addEventListener('keydown', e => { keys[e.code] = true; });
-window.addEventListener('keyup', e => { keys[e.code] = false; });
+// --- INPUT LOGIC (STEP-BASED STEERING) ---
+function handleInput(dir) {
+    if (isGameOver) return;
 
-const setupBtn = (id, code) => {
-    const btn = document.getElementById(id);
-    const press = (e) => { e.preventDefault(); keys[code] = true; };
-    const release = (e) => { e.preventDefault(); keys[code] = false; };
-    btn.addEventListener('touchstart', press);
-    btn.addEventListener('touchend', release);
-    btn.addEventListener('mousedown', press);
-    btn.addEventListener('mouseup', release);
-    btn.addEventListener('mouseleave', release);
+    if (dir === 'LEFT') {
+        if (steerState > -2) steerState--;
+    } else if (dir === 'RIGHT') {
+        if (steerState < 2) steerState++;
+    } else if (dir === 'DOWN' || dir === 'UP') {
+        steerState = 0; // Reset to straight down
+    }
+    updatePlayerState();
+}
+
+function updatePlayerState() {
+    switch(steerState) {
+        case -2: player.state = 'PLAYER_LEFT'; player.vx = -4; player.vy = 0; break;
+        case -1: player.state = 'PLAYER_OBLIQUE_L'; player.vx = -2; player.vy = 0.7; break;
+        case 0:  player.state = 'PLAYER_DOWN'; player.vx = 0; player.vy = 1; break;
+        case 1:  player.state = 'PLAYER_OBLIQUE_R'; player.vx = 2; player.vy = 0.7; break;
+        case 2:  player.state = 'PLAYER_RIGHT'; player.vx = 4; player.vy = 0; break;
+    }
+}
+
+window.addEventListener('keydown', e => {
+    if (e.code === 'ArrowLeft') handleInput('LEFT');
+    if (e.code === 'ArrowRight') handleInput('RIGHT');
+    if (e.code === 'ArrowDown') handleInput('DOWN');
+    if (e.code === 'ArrowUp') handleInput('UP');
+});
+
+const setupBtn = (id, dir) => {
+    document.getElementById(id).addEventListener('touchstart', (e) => { e.preventDefault(); handleInput(dir); });
+    document.getElementById(id).addEventListener('mousedown', (e) => { handleInput(dir); });
 };
-setupBtn('up', 'ArrowUp'); setupBtn('down', 'ArrowDown');
-setupBtn('left', 'ArrowLeft'); setupBtn('right', 'ArrowRight');
+setupBtn('left', 'LEFT'); setupBtn('right', 'RIGHT');
+setupBtn('down', 'DOWN'); setupBtn('up', 'UP');
 
 function spawnObstacle() {
     if (isGameOver) return;
+    
     const rand = Math.random();
     let type = 'ROCK';
     let isMoving = false;
@@ -162,28 +168,23 @@ function spawnObstacle() {
         dir: Math.random() > 0.5 ? 1 : -1
     });
     
-    setTimeout(spawnObstacle, Math.max(300, 1000 - (score/3)));
+    // DIFFICULTY: Decrease spawn delay every 100m (score / 100)
+    let difficultyBonus = Math.floor(score / 100) * 50; 
+    let spawnDelay = Math.max(150, 1000 - difficultyBonus);
+    
+    spawnTimer = setTimeout(spawnObstacle, spawnDelay);
 }
 
 function update() {
     if (isGameOver) return;
 
-    player.vx = 0;
-    player.state = 'PLAYER_DOWN';
-
-    if (keys['ArrowLeft']) {
-        player.vx = -5;
-        player.state = keys['ArrowDown'] ? 'PLAYER_OBLIQUE_L' : 'PLAYER_LEFT';
-    } 
-    if (keys['ArrowRight']) {
-        player.vx = 5;
-        player.state = keys['ArrowDown'] ? 'PLAYER_OBLIQUE_R' : 'PLAYER_RIGHT';
-    }
-    
+    // Apply horizontal movement
     player.x += player.vx;
     player.x = Math.max(0, Math.min(canvas.width - player.w, player.x));
 
-    let currentSpeed = keys['ArrowUp'] ? gameSpeed * 0.5 : (keys['ArrowDown'] ? gameSpeed * 1.8 : gameSpeed);
+    // Calculate vertical movement speed
+    // If sideways, mountain stops moving. If oblique, moves slower.
+    let currentSpeed = baseSpeed * player.vy;
 
     for (let i = obstacles.length - 1; i >= 0; i--) {
         let obs = obstacles[i];
@@ -194,56 +195,44 @@ function update() {
             if (obs.x <= 0 || obs.x >= canvas.width - obs.w) obs.dir *= -1;
         }
 
+        // Collision
         if (player.x < obs.x + obs.w - 12 && player.x + player.w > obs.x + 12 &&
             player.y < obs.y + obs.h - 12 && player.y + player.h > obs.y + 12) {
             endGame();
         }
-
         if (obs.y + obs.h < 0) obstacles.splice(i, 1);
     }
 
-    score += Math.floor(currentSpeed / 5);
-    scoreEl.innerText = score;
-    gameSpeed = 4 + (score / 1500); 
+    // AUTOMATIC DISTANCE: Score increases by current speed
+    if (currentSpeed > 0) {
+        score += currentSpeed / 10;
+        scoreEl.innerText = Math.floor(score);
+    }
 }
 
 function draw() {
-    // Clear and fill white
     ctx.fillStyle = "white";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
     obstacles.forEach(obs => {
-        const img = images[obs.type];
-        if (img.complete && img.naturalWidth !== 0) {
-            ctx.drawImage(img, obs.x, obs.y, obs.w, obs.h);
-        } else {
-            // Draw a box if image is missing
-            ctx.fillStyle = "#ddd";
-            ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
-            ctx.fillStyle = "black";
-            ctx.font = "8px Arial";
-            ctx.fillText(obs.type, obs.x, obs.y + 20);
-        }
+        if (images[obs.type].complete) ctx.drawImage(images[obs.type], obs.x, obs.y, obs.w, obs.h);
     });
 
-    const pImg = images[player.state];
-    if (pImg.complete && pImg.naturalWidth !== 0) {
-        ctx.drawImage(pImg, player.x, player.y, player.w, player.h);
-    } else {
-        ctx.fillStyle = "blue";
-        ctx.fillRect(player.x, player.y, player.w, player.h);
+    if (images[player.state].complete) {
+        ctx.drawImage(images[player.state], player.x, player.y, player.w, player.h);
     }
 }
 
 function endGame() {
     isGameOver = true;
+    clearTimeout(spawnTimer);
     player.state = 'PLAYER_CRASH';
-    if (score > highScore) {
-        highScore = score;
+    if (Math.floor(score) > highScore) {
+        highScore = Math.floor(score);
         document.getElementById('highScore').innerText = highScore;
     }
     restartBtn.style.display = 'block';
-    draw(); // Draw final crash
+    draw();
 }
 
 function gameLoop() {
@@ -252,13 +241,23 @@ function gameLoop() {
     if (!isGameOver) requestAnimationFrame(gameLoop);
 }
 
+function initGame() {
+    updatePlayerState();
+    spawnObstacle();
+    gameLoop();
+}
+
 restartBtn.onclick = () => {
     score = 0;
     obstacles = [];
     isGameOver = false;
-    player.x = 180;
-    player.state = 'PLAYER_DOWN';
+    steerState = 0;
+    updatePlayerState();
     restartBtn.style.display = 'none';
+    
+    // Clear any old timers before starting new ones
+    clearTimeout(spawnTimer);
+    spawnObstacle(); 
     gameLoop();
 };
 </script>
