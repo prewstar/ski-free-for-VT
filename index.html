@@ -3,20 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Retro Ski Pro - Multi-Engine Edition</title>
+    <title>Retro Ski Pro - Time-Delta Edition</title>
     <style>
-        body {
-            margin: 0; 
+        html, body {
+            margin: 0;
+            padding: 0;
+            /* Explicitly lock out horizontal scrolling across the whole page */
+            overflow-x: hidden; 
             background: #333; 
             color: white;
             font-family: 'Courier New', monospace; 
-            /* Allows natural vertical scrolling on small screens if layout elements overflow */
-            overflow-y: auto; 
             display: flex; 
             flex-direction: column; 
             align-items: center;
             min-height: 100vh;
-            padding-bottom: 30px; /* Extra breathing room at the bottom for mobile bars */
+            padding-bottom: 30px; 
             box-sizing: border-box;
         }
         
@@ -31,6 +32,8 @@
             position: relative; 
             margin-top: 5px; 
             touch-action: none; 
+            /* Prevent horizontal overflow container shifts */
+            max-width: 100vw; 
         }
         
         canvas { 
@@ -38,7 +41,6 @@
             border: 4px solid #000; 
             display: block; 
             image-rendering: pixelated; 
-            /* Responsive resizing for smaller displays */
             max-width: 100vw; 
             max-height: 70vh; 
         }
@@ -77,7 +79,7 @@
             background: rgba(0,0,0,0.9); display: flex; flex-direction: column;
             align-items: center; justify-content: center; text-align: center;
             z-index: 20; padding: 20px; box-sizing: border-box;
-            overflow-y: auto; /* Fallback for viewing text on short devices */
+            overflow-y: auto; 
         }
         .overlay h2 { color: #ff4757; margin: 5px 0; font-size: 20px; }
         .overlay p { font-size: 12px; line-height: 1.4; margin: 6px 0; }
@@ -151,13 +153,21 @@ canvas.height = 500;
 
 let score = 0;
 let highScore = 0;
-let baseSpeed = 5;
-let speedMultiplier = 1;
 let isGameOver = false;
 let obstacles = [];
 let snowLumps = [];
 let steerState = 0; 
 let lineCounter = 0;
+
+// Time-Delta Physics Variables
+let lastTime = 0;
+let baseSpeed = 250;       // Speed in pixels per SECOND (instead of per frame)
+let speedMultiplier = 1;
+const TARGET_FPS = 60;     // Normalizing modifier base
+
+// Base horizontal velocities scaled for time tracking
+let baseVx = 0;
+let baseVy = 0;
 
 let lineTimer, randomTimer, snowTimer;
 
@@ -167,7 +177,7 @@ const totalImages = Object.keys(SPRITE_SOURCES).length;
 
 Object.keys(SPRITE_SOURCES).forEach(key => {
     const img = new Image();
-    img.onload = () => { if (++imagesLoaded === totalImages) { /* Ready, but wait for click */ } };
+    img.onload = () => { if (++imagesLoaded === totalImages) { /* Ready */ } };
     img.onerror = () => { imagesLoaded++; };
     img.src = SPRITE_SOURCES[key];
     images[key] = img;
@@ -176,7 +186,6 @@ Object.keys(SPRITE_SOURCES).forEach(key => {
 const player = {
     x: 180, y: 100,
     w: 40, h: 40,
-    vx: 0, vy: 0,
     state: 'PLAYER_DOWN'
 };
 
@@ -190,19 +199,20 @@ function handleInput(dir) {
 
 function updatePlayerState() {
     switch(steerState) {
-        case -2: player.state = 'PLAYER_LEFT'; player.vx = -4.5; player.vy = 0; break;
-        case -1: player.state = 'PLAYER_OBLIQUE_L'; player.vx = -2.5; player.vy = 0.7; break;
-        case 0:  player.state = 'PLAYER_DOWN'; player.vx = 0; player.vy = 1; break;
-        case 1:  player.state = 'PLAYER_OBLIQUE_R'; player.vx = 2.5; player.vy = 0.7; break;
-        case 2:  player.state = 'PLAYER_RIGHT'; player.vx = 4.5; player.vy = 0; break;
+        case -2: player.state = 'PLAYER_LEFT';      baseVx = -225; baseVy = 0;   break;
+        case -1: player.state = 'PLAYER_OBLIQUE_L';  baseVx = -125; baseVy = 0.7; break;
+        case 0:  player.state = 'PLAYER_DOWN';       baseVx = 0;    baseVy = 1;   break;
+        case 1:  player.state = 'PLAYER_OBLIQUE_R';  baseVx = 125;  baseVy = 0.7; break;
+        case 2:  player.state = 'PLAYER_RIGHT';     baseVx = 225;  baseVy = 0;   break;
     }
 }
 
+// Global Keyboard Listener with Selective Horizontal Scroll Prevention
 window.addEventListener('keydown', e => {
-    if (e.code === 'ArrowLeft') handleInput('LEFT');
-    if (e.code === 'ArrowRight') handleInput('RIGHT');
-    if (e.code === 'ArrowDown') handleInput('DOWN');
-    if (e.code === 'ArrowUp') handleInput('UP');
+    if (e.code === 'ArrowLeft') { e.preventDefault(); handleInput('LEFT'); }
+    if (e.code === 'ArrowRight') { e.preventDefault(); handleInput('RIGHT'); }
+    if (e.code === 'ArrowDown') handleInput('DOWN'); // Left open for natural scroll access
+    if (e.code === 'ArrowUp') handleInput('UP');     // Left open for natural scroll access
 });
 
 const setupBtn = (id, dir) => {
@@ -262,25 +272,48 @@ function spawnSnow() {
     snowTimer = setTimeout(spawnSnow, 800 + Math.random() * 2500);
 }
 
-function update() {
+// Time-Delta Engine Calculation
+function update(dt) {
     if (isGameOver) return;
-    player.x += player.vx;
-    player.x = Math.max(0, Math.min(canvas.width - player.w, player.x));
-    let currentSpeed = baseSpeed * player.vy * speedMultiplier;
-    if (speedMultiplier < 1) speedMultiplier += 0.015;
 
+    // Scale current frame movement by delta time fraction
+    player.x += baseVx * dt;
+    player.x = Math.max(0, Math.min(canvas.width - player.w, player.x));
+    
+    // Dynamic mountain scrolling tracking
+    let calculatedBaseSpeed = baseSpeed + (score / 4); 
+    let currentSpeed = calculatedBaseSpeed * baseVy * speedMultiplier;
+    
+    // Recovery rate adjusted smoothly over real time
+    if (speedMultiplier < 1) speedMultiplier += 0.9 * dt;
+
+    // Frame-Independent environment calculations
     for (let i = snowLumps.length - 1; i >= 0; i--) {
-        let s = snowLumps[i]; s.y -= currentSpeed;
-        if (player.x < s.x + s.w && player.x + player.w > s.x && player.y < s.y + s.h && player.y + player.h > s.y) speedMultiplier = 0.35;
+        let s = snowLumps[i]; 
+        s.y -= currentSpeed * dt;
+        if (player.x < s.x + s.w && player.x + player.w > s.x && player.y < s.y + s.h && player.y + player.h > s.y) {
+            speedMultiplier = 0.35;
+        }
         if (s.y + s.h < 0) snowLumps.splice(i, 1);
     }
+    
     for (let i = obstacles.length - 1; i >= 0; i--) {
-        let obs = obstacles[i]; obs.y -= currentSpeed;
-        if (obs.isMoving) { obs.x += obs.dir * 2.2; if (obs.x <= 0 || obs.x >= canvas.width - obs.w) obs.dir *= -1; }
-        if (player.x < obs.x + obs.w - 12 && player.x + player.w > obs.x + 12 && player.y < obs.y + obs.h - 12 && player.y + player.h > obs.y + 12) endGame();
+        let obs = obstacles[i]; 
+        obs.y -= currentSpeed * dt;
+        if (obs.isMoving) { 
+            obs.x += (obs.dir * 110) * dt; 
+            if (obs.x <= 0 || obs.x >= canvas.width - obs.w) obs.dir *= -1; 
+        }
+        if (player.x < obs.x + obs.w - 12 && player.x + player.w > obs.x + 12 && player.y < obs.y + obs.h - 12 && player.y + player.h > obs.y + 12) {
+            endGame();
+        }
         if (obs.y + obs.h < 0) obstacles.splice(i, 1);
     }
-    if (currentSpeed > 0) { score += currentSpeed / 10; scoreEl.innerText = Math.floor(score); }
+    
+    if (currentSpeed > 0) { 
+        score += (currentSpeed * dt) / 50; 
+        scoreEl.innerText = Math.floor(score); 
+    }
 }
 
 function draw() {
@@ -299,9 +332,21 @@ function endGame() {
     draw();
 }
 
-function gameLoop() {
-    update();
+// Master loop tracking elapsed timestamp offsets
+function gameLoop(timestamp) {
+    if (!lastTime) lastTime = timestamp;
+    
+    // Total fractional seconds passed since previous cycle call
+    let dt = (timestamp - lastTime) / 1000;
+    
+    // Cap maximum evaluation delta step to safely intercept background tab sleeps
+    if (dt > 0.1) dt = 0.1; 
+    
+    lastTime = timestamp;
+
+    update(dt);
     draw();
+    
     if (!isGameOver) requestAnimationFrame(gameLoop);
 }
 
@@ -314,7 +359,10 @@ function initGame() {
     isGameOver = false;
     updatePlayerState();
     spawnObstacleLine(); spawnRandomObstacle(); spawnSnow();         
-    gameLoop();
+    
+    // Initialize timing markers cleanly before firing framework engine
+    lastTime = 0; 
+    requestAnimationFrame(gameLoop);
 }
 
 function stopAllTimers() {
