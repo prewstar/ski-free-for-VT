@@ -199,11 +199,11 @@ function handleInput(dir) {
 
 function updatePlayerState() {
     switch(steerState) {
-        case -2: player.state = 'PLAYER_LEFT';      baseVx = -225; baseVy = 0;   break;
-        case -1: player.state = 'PLAYER_OBLIQUE_L';  baseVx = -125; baseVy = 0.7; break;
+        case -2: player.state = 'PLAYER_LEFT';      baseVx = -400; baseVy = 0;   break;
+        case -1: player.state = 'PLAYER_OBLIQUE_L';  baseVx = -200; baseVy = 0.7; break;
         case 0:  player.state = 'PLAYER_DOWN';       baseVx = 0;    baseVy = 1;   break;
-        case 1:  player.state = 'PLAYER_OBLIQUE_R';  baseVx = 125;  baseVy = 0.7; break;
-        case 2:  player.state = 'PLAYER_RIGHT';     baseVx = 225;  baseVy = 0;   break;
+        case 1:  player.state = 'PLAYER_OBLIQUE_R';  baseVx = 200;  baseVy = 0.7; break;
+        case 2:  player.state = 'PLAYER_RIGHT';     baseVx = 400;  baseVy = 0;   break;
     }
 }
 
