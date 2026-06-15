@@ -161,7 +161,7 @@ let lineCounter = 0;
 
 // Time-Delta Physics Variables
 let lastTime = 0;
-let baseSpeed = 800;       // Speed in pixels per SECOND (instead of per frame)
+let baseSpeed = 700;       // Speed in pixels per SECOND (instead of per frame)
 let speedMultiplier = 1;
 const TARGET_FPS = 60;     // Normalizing modifier base
 
@@ -311,7 +311,7 @@ function update(dt) {
     }
     
     if (currentSpeed > 0) { 
-        score += (currentSpeed * dt) / 50; 
+        score += (currentSpeed * dt) / 10; 
         scoreEl.innerText = Math.floor(score); 
     }
 }
